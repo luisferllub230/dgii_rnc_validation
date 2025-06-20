@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_partner_form_odoo_dgii_online" model="ir.ui.view">
+        <field name="name">view_partner_form_odoo_dgii_online</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="base.view_partner_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='vat']" position="replace">
+                <label for="vat"/>
+                <div class="o_row">
+                    <field force_save="1" invisible="is_vat_validate == False or vat == False" name="is_vat_validate" nolabel="1" readonly="1"/>
+                    <field force_save="1" name="vat" placeholder="e.g. BE0477472701" readonly="parent_id != False"/>
+                    <button aria-label="validate your vat" class="btn-sm mb4 fa fa-refresh" invisible="vat_state in ['ACTIVO', 'SUSPENDIDO', 'DADO DE BAJA', 'CESE TEMPORAL', 'RECHAZADO', 'ANULADO'] or vat == False" name="action_validate_vat" title="validate your vat" type="object"/>
+                </div>
+                <field force_save="1" class="bg-success" invisible="vat_state not in ['ACTIVO']" name="vat_state" readonly="1" string="" widget="badge"/>
+                <field force_save="1" class="bg-warning" invisible="vat_state not in ['CESE TEMPORAL']" name="vat_state" readonly="1" string="" widget="badge"/>
+                <field force_save="1" class="bg-danger" invisible="vat_state not in ['DADO DE BAJA', 'RECHAZADO', 'ANULADO', 'SUSPENDIDO','DESCONOCIDO']" name="vat_state" readonly="1" string="" widget="badge"/>
+            </xpath>
+        </field>
+    </record>
+    
+    <record id="action_validate_vat_server" model="ir.actions.server">
+        <field name="name">Validate VA</field>
+        <field name="type">ir.actions.server</field>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="binding_model_id" ref="base.model_res_partner"/>
+        <field name="state">code</field>
+        <field name="code">
+        for rec in records:
+           action = rec.action_validate_vat()
+        </field>
+    </record>
+</odoo>
