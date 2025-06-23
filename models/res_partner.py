@@ -1,13 +1,9 @@
-import ssl
 import logging
-import mechanize
+import requests
 import unicodedata
 
 from bs4 import BeautifulSoup
-from urllib import parse as urlparse
-
 from odoo import models, api, fields, _
-from odoo.exceptions import ValidationError
 
 logger = logging.getLogger()
 
@@ -58,7 +54,7 @@ class ResPartner(models.Model):
         vat = self.vat if self.vat else ''
         res = self._get_web_scrapt_data(vat)
 
-        if res.get('tag', False):
+        if res.get('tag', False) or (not res.get('rnc', False) or not res.get('name', False)):
             self.write({
                 'vat_state': 'DESCONOCIDO',
                 'is_vat_validate': False,
@@ -73,42 +69,52 @@ class ResPartner(models.Model):
         })
 
         return res
-    
+
     def _get_web_scrapt_data(self, rnc):
         res = {}
-        error_msg = 'Algo inesperado acaba de suceder en la validación del Número de Comprobante Fiscal. Por favor intentarlo más tardes.'
-        url = "https://dgii.gov.do/app/WebApps/ConsultasWeb/"
-        web_resource = "consultas/rnc.aspx"
-        req_headers =  {"User-agent": "Mozilla/5.0"}
-        req_rnc_input = 'ctl00$cphMain$txtRNCCedula'
+        url = "https://dgii.gov.do/app/WebApps/ConsultasWeb2/ConsultasWeb/consultas/rnc.aspx"        
+        error_msg = "Algo inesperado acaba de suceder en la validación del Número de Comprobante Fiscal. Por favor intentarlo más tardes."
+        
+        session = requests.Session()
+        headers = { "User-Agent": "Mozilla/5.0"}
+        response = session.get(url, headers=headers)
+        soup = BeautifulSoup(response.text, "html.parser")
 
-        url = urlparse.urljoin(url, web_resource)
-        data = ""
-        # mechanize._sockettimeout._GLOBAL_DEFAULT_TIMEOUT = TIMEOUT
-        mechanize_br = mechanize.Browser()
-        mechanize_br.set_handle_robots(False)
-        mechanize_br.set_handle_equiv(False)
-        # Ignore SSL certificate verification errors
-        mechanize_br.set_ca_data(context=ssl._create_unverified_context())
-        mechanize_br.addheaders = list(req_headers.items())
+        viewstate = soup.find("input", {"id": "__VIEWSTATE"}).get("value")
+        eventvalidation = soup.find("input", {"id": "__EVENTVALIDATION"}).get("value")
+        viewstategenerator = soup.find("input", {"id": "__VIEWSTATEGENERATOR"}).get("value")
 
-        try:
-            mechanize_br.open(url, timeout=TIMEOUT)
-            mechanize_br.select_form(nr=0)
-            mechanize_br.form[req_rnc_input] = rnc.replace('-', '')
-            data = mechanize_br.submit()
-            data = data.get_data()
-            soup = BeautifulSoup(data, "html5lib")
-            table = soup.find_all("table", {"id" : "ctl00_cphMain_dvDatosContribuyentes"})
-            tds = table[0].findChildren('td')
-            rnc_vals = [unicodedata.normalize('NFKC', td.text.strip()) for td in tds]
-        except (mechanize.HTTPError, mechanize.URLError, Exception) as error:
-            logger.error(f"error mechanize: {error}")
-            return self.build_message(error_msg)
-            
-        if not rnc_vals:
-            return self.build_message(error_msg)
+        if not viewstate or not eventvalidation or not viewstategenerator:
+            return {"error": error_msg}
 
+        data = {
+            "__EVENTTARGET": "ctl00$cphMain$btnBuscarPorRNC",
+            "__EVENTARGUMENT": "",
+            "__LASTFOCUS": "",
+            "__VIEWSTATE": viewstate,
+            "__VIEWSTATEGENERATOR": viewstategenerator,
+            "__EVENTVALIDATION": eventvalidation,
+            "ctl00$cphMain$txtRNCCedula": rnc.replace("-", ""),
+            "ctl00$cphMain$hidActiveTab": "",
+        }
+
+        post_response = session.post(url, data=data, headers=headers)
+        post_soup = BeautifulSoup(post_response.text, "html5lib")
+        table = post_soup.find("table", {"id": "cphMain_dvDatosContribuyentes"})
+
+        if not table:
+            return {"error": error_msg}
+
+        rows = table.find_all("tr")
+        rnc_vals = []
+        for row in rows:
+            tds = row.find_all("td")
+            for td in tds:
+                rnc_vals.append(unicodedata.normalize('NFKC', td.text.strip()))
+
+        if len(rnc_vals) < 16:
+            return {"error": error_msg}
+        
         res['rnc'] = rnc_vals[1]
         res['name'] = rnc_vals[3]
         res['comercial_name'] = rnc_vals[5]
@@ -117,8 +123,9 @@ class ResPartner(models.Model):
         res['state'] = rnc_vals[11]
         res['econimic_activity'] = rnc_vals[13]
         res['local_administraion'] = rnc_vals[15]
-        return res 
-    
+
+        return res
+
     def build_message(self, message):
         MESSAGE['params']['message'] = _(message)
         return MESSAGE
