@@ -85,7 +85,7 @@ class ResPartner(models.Model):
         viewstategenerator = soup.find("input", {"id": "__VIEWSTATEGENERATOR"}).get("value")
 
         if not viewstate or not eventvalidation or not viewstategenerator:
-            return {"error": error_msg}
+            return self.build_message(error_msg)
 
         data = {
             "__EVENTTARGET": "ctl00$cphMain$btnBuscarPorRNC",
@@ -103,7 +103,7 @@ class ResPartner(models.Model):
         table = post_soup.find("table", {"id": "cphMain_dvDatosContribuyentes"})
 
         if not table:
-            return {"error": error_msg}
+            return self.build_message("No se encontraron resultados para el RNC proporcionado.")
 
         rows = table.find_all("tr")
         rnc_vals = []
@@ -113,7 +113,7 @@ class ResPartner(models.Model):
                 rnc_vals.append(unicodedata.normalize('NFKC', td.text.strip()))
 
         if len(rnc_vals) < 16:
-            return {"error": error_msg}
+            return self.build_message("No se encontraron resultados para el RNC proporcionado.")
         
         res['rnc'] = rnc_vals[1]
         res['name'] = rnc_vals[3]
